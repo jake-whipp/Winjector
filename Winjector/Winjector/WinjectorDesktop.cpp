@@ -1,10 +1,9 @@
 #include <Windows.h>
 #include <new>
+#include <ShObjIdl.h>
 
 // Define a structure to hold some state information.
-
 struct StateInfo {
-	// ... (struct members not shown)
 	const char* selectedAppName = "";
 };
 
@@ -19,6 +18,12 @@ int WINAPI WinMain(
 	LPSTR lpCmdLine,			// contains the command line args in a string
 	int nCmdShow)				// flag to indicate whether the app is minimised, maximised, or regular
 {
+	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+	if (FAILED(hr))
+	{
+		return 0;
+	}
+
 	// Register the window class
 	const wchar_t CLASS_NAME[] = L"Winjector Window Class";
 
@@ -63,6 +68,20 @@ int WINAPI WinMain(
 		return 0;
 	}
 
+	// Create the FileOpenDialog object. The Class ID and Interface ID are defined in
+	// The same header as the IFileOpenDialog interface itself (ShObjIdl.h).
+	IFileOpenDialog* pFileOpen;
+
+	hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL,
+		IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
+
+	if (SUCCEEDED(hr))
+	{
+		// Show the Open dialog box.
+		hr = pFileOpen->Show(NULL);
+	}
+
+
 	// Display the window
 	ShowWindow(hWnd, nCmdShow);
 	UpdateWindow(hWnd);
@@ -74,6 +93,9 @@ int WINAPI WinMain(
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
+
+	CoUninitialize();
+	return (int)msg.wParam;
 }
 
 
