@@ -1,6 +1,7 @@
 #include <Windows.h>
 #include <new>
 #include <ShObjIdl.h>
+#include <atlbase.h>
 
 // Define a structure to hold some state information.
 struct StateInfo {
@@ -44,18 +45,18 @@ int WINAPI WinMain(
 		return 0;
 	}
 
-	// Create the window instance
+	// Create the application window instance
 	HWND hWnd = CreateWindowEx(
 		0,						// Optional window styles
 		CLASS_NAME,				// Same name as window class
-		L"Winjector Tool",		// Example
+		L"Winjector Tool",		// Window name
 		WS_OVERLAPPEDWINDOW,	// Window style
 
 		// Position
 		CW_USEDEFAULT, CW_USEDEFAULT,
 
 		// Size
-		CW_USEDEFAULT, CW_USEDEFAULT,
+		500, 500,
 
 		NULL,		// Parent window
 		NULL,		// Menu
@@ -68,19 +69,22 @@ int WINAPI WinMain(
 		return 0;
 	}
 
-	// Create the FileOpenDialog object. The Class ID and Interface ID are defined in
-	// The same header as the IFileOpenDialog interface itself (ShObjIdl.h).
-	IFileOpenDialog* pFileOpen;
-
-	hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL,
-		IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
-
-	if (SUCCEEDED(hr))
 	{
-		// Show the Open dialog box.
-		hr = pFileOpen->Show(NULL);
-	}
+		// Create the FileOpenDialog object. The Class ID and Interface ID are defined in
+		// The same header as the IFileOpenDialog interface itself (ShObjIdl.h).
+		CComPtr<IFileOpenDialog> pFileOpen;
 
+		/*hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL,
+			IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen)); */
+		hr = CoCreateInstance(__uuidof(FileOpenDialog), NULL, CLSCTX_ALL, IID_PPV_ARGS(&pFileOpen));
+
+		if (SUCCEEDED(hr))
+		{
+			// Show the Open dialog box.
+			//hr = pFileOpen->Show(NULL);
+		}
+	}
+	
 
 	// Display the window
 	ShowWindow(hWnd, nCmdShow);
@@ -115,10 +119,23 @@ LRESULT CALLBACK WindowProc(
 		// Set the pointer in the instance data for the window.
 		// it can then later be retrieved anytime by a call to GetWindowLongPtr
 		SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG_PTR)pApplicationState);
+
+		// Create other windows for application
+		CreateWindow(
+			L"BUTTON",
+			L"Select DLL",
+			WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+			20, 50,		// Coordinates
+			150, 30,	// Size
+			hWnd,
+			(HMENU)1,
+			(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
+			NULL
+		);
 	}
 	else
 	{
-		// For any message that comes in on the queue, we want to use the current instance data
+		// For any other message that comes in on the queue, we want to use the current instance data
 		pApplicationState = GetAppState(hWnd);
 	}
 
@@ -133,6 +150,9 @@ LRESULT CALLBACK WindowProc(
 
 			// pass in the entire update region as the 2nd parameter (area to paint)
 			FillRect(hdc, &paintStruct.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
+
+			// Draw text at x=10, y=10
+			TextOutW(hdc, 10, 10, L"hi", strlen("hi"));
 
 			EndPaint(hWnd, &paintStruct);
 		}
