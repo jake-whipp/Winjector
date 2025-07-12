@@ -3,6 +3,8 @@
 #include <ShObjIdl.h>
 #include <atlbase.h>
 
+#define WS_FIXED (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX )
+
 // Define a structure to hold some state information.
 struct StateInfo {
 	const char* selectedAppName = "";
@@ -50,7 +52,7 @@ int WINAPI WinMain(
 		0,						// Optional window styles
 		CLASS_NAME,				// Same name as window class
 		L"Winjector Tool",		// Window name
-		WS_OVERLAPPEDWINDOW,	// Window style
+		WS_FIXED,				// Window style
 
 		// Position
 		CW_USEDEFAULT, CW_USEDEFAULT,
@@ -120,7 +122,8 @@ LRESULT CALLBACK WindowProc(
 		// it can then later be retrieved anytime by a call to GetWindowLongPtr
 		SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG_PTR)pApplicationState);
 
-		// Create other windows for application
+		// Create other windows for the application
+		// Select DLL Button
 		CreateWindow(
 			L"BUTTON",
 			L"Select DLL",
@@ -141,6 +144,20 @@ LRESULT CALLBACK WindowProc(
 
 	switch (uMsg)
 	{
+	case WM_COMMAND:
+	{
+		{
+			// Check if the ID of the window the command is coming from
+			// 1 == button
+			if (LOWORD(wParam) == 1)
+			{
+				MessageBoxW(hWnd, L"Todo", L"DLL OpenFile Dialog", 0);
+			}
+			break;
+		}
+		
+	}
+
 	case WM_PAINT:
 		{
 			PAINTSTRUCT paintStruct;
