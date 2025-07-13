@@ -156,12 +156,14 @@ LRESULT CALLBACK WindowProc(
 			// pass in the entire update region as the 2nd parameter (area to paint)
 			FillRect(hdc, &paintStruct.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
 
+			//TextOutW(hdc, 200, 10, L"Winjector", strlen("Winjector"));
+
 			// Show currently selected DLL
 			StateInfo* pState = GetAppState(hWnd);
 			if (pState)
 			{
-				TextOutW(hdc, 20, 
-					APP_HEIGHT - 100, 
+				TextOutW(hdc, 200, 
+					320, 
 					pState->dllDisplayName.c_str(), 
 					(int)pState->dllDisplayName.length()
 				);
@@ -330,7 +332,7 @@ void AddAppControls(HWND hWnd, StateInfo* pAppState)
 		L"BUTTON",
 		L"Select DLL",
 		WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-		20, 20,		// Coordinates
+		30, 320,	// Coordinates
 		150, 30,	// Size
 		hWnd,
 		(HMENU)OPEN_FILE_BUTTON,
@@ -344,8 +346,8 @@ void AddAppControls(HWND hWnd, StateInfo* pAppState)
 		WC_LISTVIEW,
 		L"Process select",
 		WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL,
-		250, 20,	// Coordinates
-		200, 300,	// Size
+		30, 50,		// Coordinates
+		420, 250,	// Size
 		hWnd,
 		(HMENU)PROCESS_LIST_VIEW,
 		(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
@@ -366,7 +368,15 @@ void AddAppControls(HWND hWnd, StateInfo* pAppState)
 	listViewColumn.cx = 80;
 	ListView_InsertColumn(hProcessListView, 1, &listViewColumn);
 
-	pAppState->hProcessListView = hProcessListView;
+	// Set default image for all processes
+	HIMAGELIST hImageList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 1, 1);
 
+	HICON hDefaultIcon = LoadIcon(NULL, IDI_APPLICATION);
+	int defaultIconIndex = ImageList_AddIcon(hImageList, hDefaultIcon);
+
+	ListView_SetImageList(hProcessListView, hImageList, LVSIL_SMALL);
+
+	// Populate the listview for the first time
+	pAppState->hProcessListView = hProcessListView;
 	UpdateProcessList(hProcessListView);
 }
