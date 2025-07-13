@@ -1,21 +1,34 @@
 #include <Windows.h>
 #include <new>
 #include <ShObjIdl.h>
+#include <TlHelp32.h>
 #include <atlbase.h>
 #include <string>
+#include <vector>
 
 #define WS_FIXED (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX )
+#define APP_WIDTH 500
+#define APP_HEIGHT 500
 #define OPEN_FILE_BUTTON 1001
+#define PROCESS_LIST_VIEW 1002
 
-// Define a structure to hold some state information.
+// Structure to hold the information about the application's state.
 struct StateInfo {
-	std::wstring selectedAppName = L"";
+	HWND hProcessListView = NULL;
+
+	std::wstring dllPath = L"";
+	std::wstring dllDisplayName = L"";
 };
 
+struct ProcessInfo {
+	std::wstring processName = L"";
+	DWORD processID = NULL;
+};
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-void AddAppControls(HWND hWnd);
+void AddAppControls(HWND hWnd, StateInfo* pAppState);
 void OpenFile(HWND hWnd, StateInfo* pAppState);
+void UpdateProcessList(HWND hListView);
 inline StateInfo* GetAppState(HWND hWnd);
 
 
@@ -62,7 +75,7 @@ int WINAPI WinMain(
 		CW_USEDEFAULT, CW_USEDEFAULT,
 
 		// Size
-		500, 500,
+		APP_WIDTH, APP_HEIGHT,
 
 		NULL,		// Parent window
 		NULL,		// Menu
@@ -111,8 +124,7 @@ LRESULT CALLBACK WindowProc(
 		// it can then later be retrieved anytime by a call to GetWindowLongPtr
 		SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG_PTR)pApplicationState);
 
-
-		AddAppControls(hWnd);
+		AddAppControls(hWnd, pApplicationState);
 	}
 	else
 	{
@@ -144,14 +156,15 @@ LRESULT CALLBACK WindowProc(
 			// pass in the entire update region as the 2nd parameter (area to paint)
 			FillRect(hdc, &paintStruct.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
 
-			// Draw text at x=10, y=10
-			TextOutW(hdc, 20, 10, L"Winjector", strlen("Winjector"));
-
 			// Show currently selected DLL
 			StateInfo* pState = GetAppState(hWnd);
 			if (pState)
 			{
-				TextOutW(hdc, 20, 100, pState->selectedAppName.c_str(), (int)pState->selectedAppName.length());
+				TextOutW(hdc, 20, 
+					APP_HEIGHT - 100, 
+					pState->dllDisplayName.c_str(), 
+					(int)pState->dllDisplayName.length()
+				);
 			}
 
 			EndPaint(hWnd, &paintStruct);
@@ -176,6 +189,71 @@ LRESULT CALLBACK WindowProc(
 	// Any other unhandled messages go to the DefWindowProc. 
 	// This function performs the default action for the message, which varies by message type.
 	return DefWindowProc(hWnd, uMsg, wParam, lParam);
+}
+
+
+int GetActiveProcesses(HWND hWnd, std::vector<ProcessInfo>* processesVector)
+{
+	HANDLE hProcessSnapshot = NULL;
+
+	PROCESSENTRY32 processEntry = { NULL };
+	processEntry.dwSize = sizeof(PROCESSENTRY32);
+
+	// Create the snapshot and check if valid
+	hProcessSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+
+	if (hProcessSnapshot == INVALID_HANDLE_VALUE)
+	{
+		MessageBox(hWnd, L"Error: process snapshot has invalid handle", L"Error", MB_OK | MB_ICONERROR);
+		return -1;
+	}
+
+	// Walk the snapshot and build a vector of process information
+	std::vector<ProcessInfo> processes;
+
+	if (Process32First(hProcessSnapshot, &processEntry))
+	{
+		do
+		{
+			ProcessInfo p;
+			p.processID = processEntry.th32ProcessID;
+			p.processName = processEntry.szExeFile;
+
+			processes.push_back(p);
+		} while (Process32Next(hProcessSnapshot, &processEntry));
+	}
+
+	// Cleanup
+	CloseHandle(hProcessSnapshot);
+	
+	*processesVector = processes;
+
+	return 0;
+}
+
+void UpdateProcessList(HWND hListView)
+{
+	std::vector<ProcessInfo> processes;
+
+	if (GetActiveProcesses(hListView, &processes) == -1)
+	{
+		return;
+	}
+
+	LVITEM listViewItem = { 0 };
+	listViewItem.mask = LVIF_TEXT | LVIF_IMAGE;
+
+	for (auto p : processes)
+	{
+		listViewItem.pszText = (LPWSTR)p.processName.c_str();
+		listViewItem.iImage = 0;
+		listViewItem.iItem = 0;
+
+		int row = ListView_InsertItem(hListView, &listViewItem);
+
+		std::wstring pidText = std::to_wstring(p.processID);
+		ListView_SetItemText(hListView, row, 1, (LPWSTR)pidText.c_str());
+	}
 }
 
 
@@ -211,15 +289,24 @@ void OpenFile(HWND hWnd, StateInfo* pAppState)
 		return;
 	}
 
-	PWSTR pszFilePath = nullptr;
+	LPWSTR pszFilePath = nullptr;
 	hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
 
 	if (SUCCEEDED(hr))
 	{
-		MessageBox(hWnd, pszFilePath, L"Selected File", MB_OK);
-		pAppState->selectedAppName = pszFilePath;
+		//MessageBox(hWnd, pszFilePath, L"Selected File", MB_OK);
+		pAppState->dllPath = pszFilePath;
 
 		CoTaskMemFree(pszFilePath);
+
+		LPWSTR pszFileName = nullptr;
+		hr = pItem->GetDisplayName(SIGDN_NORMALDISPLAY, &pszFileName);
+
+		if (SUCCEEDED(hr))
+		{
+			pAppState->dllDisplayName = pszFileName;
+			CoTaskMemFree(pszFileName);
+		}
 
 		// Trigger a redraw so the selected DLL text updates
 		InvalidateRect(hWnd, NULL, TRUE);
@@ -234,7 +321,7 @@ inline StateInfo* GetAppState(HWND hWnd)
 	return pState;
 }
 
-void AddAppControls(HWND hWnd)
+void AddAppControls(HWND hWnd, StateInfo* pAppState)
 {
 	// Create other windows for the application
 	
@@ -243,11 +330,43 @@ void AddAppControls(HWND hWnd)
 		L"BUTTON",
 		L"Select DLL",
 		WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-		20, 50,		// Coordinates
+		20, 20,		// Coordinates
 		150, 30,	// Size
 		hWnd,
 		(HMENU)OPEN_FILE_BUTTON,
 		(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
 		NULL
 	);
+
+
+	// Select process ListView
+	HWND hProcessListView = CreateWindowEx(0,
+		WC_LISTVIEW,
+		L"Process select",
+		WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL,
+		250, 20,	// Coordinates
+		200, 300,	// Size
+		hWnd,
+		(HMENU)PROCESS_LIST_VIEW,
+		(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
+		NULL
+	);
+
+	// Create columns
+	LVCOLUMN listViewColumn = { 0 };
+	listViewColumn.mask = LVCF_TEXT | LVCF_WIDTH;
+
+	// Column 1 (Process)
+	listViewColumn.pszText = (LPWSTR)L"Process Name";
+	listViewColumn.cx = 120;
+	ListView_InsertColumn(hProcessListView, 0, &listViewColumn);
+
+	// Column 2 (PID)
+	listViewColumn.pszText = (LPWSTR)L"PID";
+	listViewColumn.cx = 80;
+	ListView_InsertColumn(hProcessListView, 1, &listViewColumn);
+
+	pAppState->hProcessListView = hProcessListView;
+
+	UpdateProcessList(hProcessListView);
 }
