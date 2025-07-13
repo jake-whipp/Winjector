@@ -4,6 +4,7 @@
 #include <atlbase.h>
 
 #define WS_FIXED (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX )
+#define OPEN_FILE_BUTTON 1
 
 // Define a structure to hold some state information.
 struct StateInfo {
@@ -13,7 +14,10 @@ struct StateInfo {
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 void OnSize(HWND hwnd, UINT flag, int width, int height);
+void AddControls(HWND hWnd);
+void OpenFile(HWND hWnd);
 inline StateInfo* GetAppState(HWND hWnd);
+
 
 int WINAPI WinMain(
 	HINSTANCE hInstance,		// handle to the instance
@@ -70,22 +74,6 @@ int WINAPI WinMain(
 	{
 		return 0;
 	}
-
-	{
-		// Create the FileOpenDialog object. The Class ID and Interface ID are defined in
-		// The same header as the IFileOpenDialog interface itself (ShObjIdl.h).
-		CComPtr<IFileOpenDialog> pFileOpen;
-
-		/*hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL,
-			IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen)); */
-		hr = CoCreateInstance(__uuidof(FileOpenDialog), NULL, CLSCTX_ALL, IID_PPV_ARGS(&pFileOpen));
-
-		if (SUCCEEDED(hr))
-		{
-			// Show the Open dialog box.
-			//hr = pFileOpen->Show(NULL);
-		}
-	}
 	
 
 	// Display the window
@@ -122,19 +110,8 @@ LRESULT CALLBACK WindowProc(
 		// it can then later be retrieved anytime by a call to GetWindowLongPtr
 		SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG_PTR)pApplicationState);
 
-		// Create other windows for the application
-		// Select DLL Button
-		CreateWindow(
-			L"BUTTON",
-			L"Select DLL",
-			WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-			20, 50,		// Coordinates
-			150, 30,	// Size
-			hWnd,
-			(HMENU)1,
-			(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
-			NULL
-		);
+
+		AddControls(hWnd);
 	}
 	else
 	{
@@ -145,18 +122,16 @@ LRESULT CALLBACK WindowProc(
 	switch (uMsg)
 	{
 	case WM_COMMAND:
-	{
 		{
-			// Check if the ID of the window the command is coming from
-			// 1 == button
-			if (LOWORD(wParam) == 1)
+			switch (LOWORD(wParam))
 			{
-				MessageBoxW(hWnd, L"Todo", L"DLL OpenFile Dialog", 0);
+			case OPEN_FILE_BUTTON:
+				OpenFile(hWnd);
+				break;
 			}
+
 			break;
 		}
-		
-	}
 
 	case WM_PAINT:
 		{
@@ -169,7 +144,7 @@ LRESULT CALLBACK WindowProc(
 			FillRect(hdc, &paintStruct.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
 
 			// Draw text at x=10, y=10
-			TextOutW(hdc, 10, 10, L"hi", strlen("hi"));
+			TextOutW(hdc, 10, 10, L"Winjector", strlen("Winjector"));
 
 			EndPaint(hWnd, &paintStruct);
 		}
@@ -180,8 +155,6 @@ LRESULT CALLBACK WindowProc(
 		{
 			int width = LOWORD(lParam);
 			int height = HIWORD(lParam);
-
-			OnSize(hWnd, (UINT)wParam, width, height);
 		}
 		break;
 
@@ -198,11 +171,40 @@ LRESULT CALLBACK WindowProc(
 }
 
 
-void OnSize(HWND hWnd, UINT flag, int width, int height)
+void OpenFile(HWND hWnd)
 {
-	// Handle resizing
-}
+	// Create the FileOpenDialog object. The Class ID and Interface ID are defined in
+	// The same header as the IFileOpenDialog interface itself (ShObjIdl.h).
+	CComPtr<IFileOpenDialog> pFileOpen;
+	HRESULT hr = CoCreateInstance(__uuidof(FileOpenDialog), NULL, CLSCTX_ALL, IID_PPV_ARGS(&pFileOpen));
 
+	if (FAILED(hr))
+	{
+		MessageBox(hWnd, L"Could not open the FileOpenDialog.", L"Error", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	// Show the Open dialog box.
+	hr = pFileOpen->Show(hWnd);
+
+	CComPtr<IShellItem> pItem;
+	hr = pFileOpen->GetResult(&pItem);
+
+	if (FAILED(hr))
+	{
+		MessageBox(hWnd, L"Failed to get file contents.", L"Error", MB_OK | MB_ICONERROR);
+		return;
+	}
+
+	PWSTR pszFilePath = nullptr;
+	hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
+
+	if (SUCCEEDED(hr))
+	{
+		MessageBox(hWnd, pszFilePath, L"Selected File", MB_OK);
+		CoTaskMemFree(pszFilePath);
+	}
+}
 
 // Helper function for getting the instance data of the current window class
 inline StateInfo* GetAppState(HWND hWnd)
@@ -210,4 +212,22 @@ inline StateInfo* GetAppState(HWND hWnd)
 	LONG_PTR lp = GetWindowLongPtr(hWnd, GWLP_USERDATA);
 	StateInfo* pState = reinterpret_cast<StateInfo*>(lp);
 	return pState;
+}
+
+void AddControls(HWND hWnd)
+{
+	// Create other windows for the application
+	
+	// Select DLL Button
+	CreateWindow(
+		L"BUTTON",
+		L"Select DLL",
+		WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+		20, 50,		// Coordinates
+		150, 30,	// Size
+		hWnd,
+		(HMENU)1,
+		(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
+		NULL
+	);
 }
