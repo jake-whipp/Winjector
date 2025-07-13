@@ -23,12 +23,6 @@ struct ProcessInfo {
 		processName = L"";
 		processID = NULL;
 	}
-
-	ProcessInfo(std::wstring name, DWORD pid)
-	{
-		processName = name;
-		processID = pid;
-	}
 };
 
 // Structure to hold the information about the application's state.
@@ -46,6 +40,7 @@ void AddAppControls(HWND hWnd, StateInfo* pAppState);
 void OpenFile(HWND hWnd, StateInfo* pAppState);
 void UpdateProcessList(HWND hListView);
 inline StateInfo* GetAppState(HWND hWnd);
+DWORD Inject(HWND hWnd, StateInfo* pAppState);
 
 
 int WINAPI WinMain(
@@ -80,7 +75,7 @@ int WINAPI WinMain(
 		return 0;
 	}
 
-	// Create the application window instance
+	// Create the base window
 	HWND hWnd = CreateWindowEx(
 		0,						// Optional window styles
 		CLASS_NAME,				// Same name as window class
@@ -93,10 +88,10 @@ int WINAPI WinMain(
 		// Size
 		APP_WIDTH, APP_HEIGHT,
 
-		NULL,		// Parent window
-		NULL,		// Menu
+		NULL,		// No parent window
+		NULL,		
 		hInstance,	// Window instance handle
-		pState		// Parameters (extra application data)
+		pState		// Extra application data
 	);
 
 	if (hWnd == NULL)
@@ -155,8 +150,30 @@ LRESULT CALLBACK WindowProc(
 			switch (LOWORD(wParam))
 			{
 			case OPEN_FILE_BUTTON:
-				OpenFile(hWnd, pApplicationState);
-				break;
+				{
+					OpenFile(hWnd, pApplicationState);
+					break;
+				}
+				
+
+			case INJECT_DLL_BUTTON:
+				{
+					int result = Inject(hWnd, pApplicationState);
+
+					// According to MSFT doc in the case of GetExitCodeThread: "if the function succeeds, the return value is nonzero."
+					// further: "if the function fails, the return value is zero".
+					if (result == 0)
+					{
+						MessageBox(hWnd, L"DLL injected, but returned an error code.", L"Error", MB_OK | MB_ICONERROR);
+					}
+					// -1 means there was an error with the injection process (which we have already covered inside the function)
+					else if (result > 0) 
+					{
+						MessageBox(hWnd, L"DLL was injected successfully.", L"Success", MB_OK | MB_ICONINFORMATION);
+					}
+					break;
+				}
+				
 			}
 
 			break;
@@ -323,7 +340,6 @@ void UpdateProcessList(HWND hListView)
 	}
 }
 
-
 void OpenFile(HWND hWnd, StateInfo* pAppState)
 {
 	// Create the FileOpenDialog object. The Class ID and Interface ID are defined in
@@ -377,6 +393,93 @@ void OpenFile(HWND hWnd, StateInfo* pAppState)
 		// Trigger a redraw so the selected DLL text updates
 		InvalidateRect(hWnd, NULL, TRUE);
 	}
+}
+
+DWORD Inject(HWND hWnd, StateInfo* pAppState)
+{
+	if (pAppState->selectedProcess.processID == 0)
+	{
+		MessageBox(hWnd, L"You need to select a process before injecting", L"Error", MB_OK | MB_ICONERROR);
+		return -1;
+	}
+	
+	if (pAppState->dllPath == L"")
+	{
+		MessageBox(hWnd, L"You need to select a DLL before injecting", L"Error", MB_OK | MB_ICONERROR);
+		return -1;
+	}
+
+	HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, true, pAppState->selectedProcess.processID);
+
+
+	// Allocate extra memory in the process so we can store the path of our DLL.
+	LPVOID pDllPathAddress = VirtualAllocEx(
+		hProcess,				
+		NULL,					// Don't care path is allocated
+		(SIZE_T)(pAppState->dllPath.length() + 1) * sizeof(wchar_t), // wchar takes 2 bytes per character
+		MEM_COMMIT,				// we want to reserve and access the memory immediately
+		PAGE_READWRITE			// read and write permissions on that memory
+	);
+
+	if (pDllPathAddress == nullptr)
+	{
+		MessageBox(hWnd, L"Could not allocate extra memory to process", L"Error", MB_OK | MB_ICONERROR);
+		return -1;
+	}
+
+	// Write DLL path
+	SIZE_T noBytesWritten = 0;
+
+	WriteProcessMemory(hProcess, 
+		pDllPathAddress, 
+		(LPWSTR)pAppState->dllPath.c_str(),			// buffer to write
+		(SIZE_T)(pAppState->dllPath.length() + 1) * sizeof(wchar_t),
+		&noBytesWritten
+	);
+
+	if (noBytesWritten == 0)
+	{
+		MessageBox(hWnd, L"Failed to inject DLL", L"Error", MB_OK | MB_ICONERROR);
+		return -1;
+	}
+
+	// We want to get a pointer to the LoadLibraryA method, but it exists inside the kernel32 dll, 
+	// so we firstly need a handle to the Kernel32 DLL.
+	HMODULE kernel32base = GetModuleHandle(L"kernel32.dll");
+	FARPROC pLoadLibrary = GetProcAddress(kernel32base, "LoadLibraryW");
+
+	// Create the remote thread to execute the LoadLibrary in
+	HANDLE thread = CreateRemoteThread(
+		hProcess,
+		NULL,
+		0,
+		(LPTHREAD_START_ROUTINE)pLoadLibrary,	// ptr to LoadLibraryA
+		pDllPathAddress,						// parameters to the call
+		0,
+		NULL
+	);
+
+	if (thread == nullptr)
+	{
+		MessageBox(hWnd, L"Failed to inject DLL", L"Error", MB_OK | MB_ICONERROR);
+		return -1;
+	}
+
+
+	// Wait for the LoadLibrary to finish executing in the remote thread
+	
+	// According to MSFT doc in the case of GetExitCodeThread: "if the function succeeds, the return value is nonzero."
+	// further: "if the function fails, the return value is zero".
+	DWORD exitCode = 1;
+	WaitForSingleObject(thread, INFINITE);
+	GetExitCodeThread(thread, &exitCode);
+
+	// Free the extra allocated memory, and close open handles to the process
+	VirtualFreeEx(hProcess, pDllPathAddress, 0, MEM_RELEASE);
+	CloseHandle(thread);
+	CloseHandle(hProcess);
+
+	return exitCode;
 }
 
 // Helper function for getting the instance data of the current window class
