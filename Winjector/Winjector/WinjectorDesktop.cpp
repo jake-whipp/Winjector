@@ -2,20 +2,20 @@
 #include <new>
 #include <ShObjIdl.h>
 #include <atlbase.h>
+#include <string>
 
 #define WS_FIXED (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX )
-#define OPEN_FILE_BUTTON 1
+#define OPEN_FILE_BUTTON 1001
 
 // Define a structure to hold some state information.
 struct StateInfo {
-	const char* selectedAppName = "";
+	std::wstring selectedAppName = L"";
 };
 
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-void OnSize(HWND hwnd, UINT flag, int width, int height);
-void AddControls(HWND hWnd);
-void OpenFile(HWND hWnd);
+void AddAppControls(HWND hWnd);
+void OpenFile(HWND hWnd, StateInfo* pAppState);
 inline StateInfo* GetAppState(HWND hWnd);
 
 
@@ -98,7 +98,8 @@ LRESULT CALLBACK WindowProc(
 	UINT uMsg,						// the message code; for example, a WM_SIZE message indicated the window was resized.
 	WPARAM wParam, LPARAM lParam)	// additional data that pertains to the message. The exact meaning depends on the message code.
 {
-	StateInfo* pApplicationState;
+	StateInfo* pApplicationState = nullptr;
+		
 
 	if (uMsg == WM_CREATE)
 	{
@@ -111,7 +112,7 @@ LRESULT CALLBACK WindowProc(
 		SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG_PTR)pApplicationState);
 
 
-		AddControls(hWnd);
+		AddAppControls(hWnd);
 	}
 	else
 	{
@@ -126,7 +127,7 @@ LRESULT CALLBACK WindowProc(
 			switch (LOWORD(wParam))
 			{
 			case OPEN_FILE_BUTTON:
-				OpenFile(hWnd);
+				OpenFile(hWnd, pApplicationState);
 				break;
 			}
 
@@ -144,7 +145,14 @@ LRESULT CALLBACK WindowProc(
 			FillRect(hdc, &paintStruct.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
 
 			// Draw text at x=10, y=10
-			TextOutW(hdc, 10, 10, L"Winjector", strlen("Winjector"));
+			TextOutW(hdc, 20, 10, L"Winjector", strlen("Winjector"));
+
+			// Show currently selected DLL
+			StateInfo* pState = GetAppState(hWnd);
+			if (pState)
+			{
+				TextOutW(hdc, 20, 100, pState->selectedAppName.c_str(), (int)pState->selectedAppName.length());
+			}
 
 			EndPaint(hWnd, &paintStruct);
 		}
@@ -171,7 +179,7 @@ LRESULT CALLBACK WindowProc(
 }
 
 
-void OpenFile(HWND hWnd)
+void OpenFile(HWND hWnd, StateInfo* pAppState)
 {
 	// Create the FileOpenDialog object. The Class ID and Interface ID are defined in
 	// The same header as the IFileOpenDialog interface itself (ShObjIdl.h).
@@ -184,6 +192,14 @@ void OpenFile(HWND hWnd)
 		return;
 	}
 
+	// Restrict types of selected files to DLL-only
+	const COMDLG_FILTERSPEC fileTypes[] =
+	{
+		{ L"DLL Files (*.dll)", L"*.dll" }
+	};
+
+	pFileOpen->SetFileTypes(ARRAYSIZE(fileTypes), fileTypes);
+
 	// Show the Open dialog box.
 	hr = pFileOpen->Show(hWnd);
 
@@ -192,7 +208,6 @@ void OpenFile(HWND hWnd)
 
 	if (FAILED(hr))
 	{
-		MessageBox(hWnd, L"Failed to get file contents.", L"Error", MB_OK | MB_ICONERROR);
 		return;
 	}
 
@@ -202,7 +217,12 @@ void OpenFile(HWND hWnd)
 	if (SUCCEEDED(hr))
 	{
 		MessageBox(hWnd, pszFilePath, L"Selected File", MB_OK);
+		pAppState->selectedAppName = pszFilePath;
+
 		CoTaskMemFree(pszFilePath);
+
+		// Trigger a redraw so the selected DLL text updates
+		InvalidateRect(hWnd, NULL, TRUE);
 	}
 }
 
@@ -214,7 +234,7 @@ inline StateInfo* GetAppState(HWND hWnd)
 	return pState;
 }
 
-void AddControls(HWND hWnd)
+void AddAppControls(HWND hWnd)
 {
 	// Create other windows for the application
 	
@@ -226,7 +246,7 @@ void AddControls(HWND hWnd)
 		20, 50,		// Coordinates
 		150, 30,	// Size
 		hWnd,
-		(HMENU)1,
+		(HMENU)OPEN_FILE_BUTTON,
 		(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
 		NULL
 	);
