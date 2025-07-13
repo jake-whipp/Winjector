@@ -11,19 +11,35 @@
 #define APP_HEIGHT 500
 #define OPEN_FILE_BUTTON 1001
 #define PROCESS_LIST_VIEW 1002
+#define SELECT_PROCESS_BUTTON 1003
+#define INJECT_DLL_BUTTON 1004
+
+struct ProcessInfo {
+	std::wstring processName;
+	DWORD processID;
+
+	ProcessInfo()
+	{
+		processName = L"";
+		processID = NULL;
+	}
+
+	ProcessInfo(std::wstring name, DWORD pid)
+	{
+		processName = name;
+		processID = pid;
+	}
+};
 
 // Structure to hold the information about the application's state.
 struct StateInfo {
 	HWND hProcessListView = NULL;
+	ProcessInfo selectedProcess = ProcessInfo();
 
 	std::wstring dllPath = L"";
 	std::wstring dllDisplayName = L"";
 };
 
-struct ProcessInfo {
-	std::wstring processName = L"";
-	DWORD processID = NULL;
-};
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 void AddAppControls(HWND hWnd, StateInfo* pAppState);
@@ -146,6 +162,42 @@ LRESULT CALLBACK WindowProc(
 			break;
 		}
 
+	case WM_NOTIFY:
+		{
+			LPNMHDR pNotifMsgHeader = (LPNMHDR)lParam;
+
+			if (pNotifMsgHeader->idFrom == PROCESS_LIST_VIEW 
+				&& pNotifMsgHeader->code == NM_DBLCLK)
+			{
+				NMLISTVIEW* pNMListView = (NMLISTVIEW*)lParam;
+
+				int iItem = pNMListView->iItem;
+				if (iItem >= 0)
+				{
+					LVITEM listViewItem = { 0 };
+					listViewItem.iItem = iItem;
+					listViewItem.mask = LVIF_PARAM;
+
+					if (ListView_GetItem(pNotifMsgHeader->hwndFrom, &listViewItem))
+					{
+						// Update the PID of the state tracker
+						DWORD processID = (DWORD)listViewItem.lParam;
+						pApplicationState->selectedProcess.processID = processID;
+
+						// Update the Process Name of the state tracker (for displaying to user)
+						wchar_t buffer[100] = L"No Application";
+						LPWSTR procName = buffer;
+						ListView_GetItemText(pNotifMsgHeader->hwndFrom, iItem, 0, procName, 260);
+
+						pApplicationState->selectedProcess.processName = procName;
+
+						// Invoke text update for selected process
+						InvalidateRect(hWnd, NULL, TRUE);
+					}
+				}
+			}
+		}
+
 	case WM_PAINT:
 		{
 			PAINTSTRUCT paintStruct;
@@ -158,14 +210,26 @@ LRESULT CALLBACK WindowProc(
 
 			//TextOutW(hdc, 200, 10, L"Winjector", strlen("Winjector"));
 
-			// Show currently selected DLL
+			
 			StateInfo* pState = GetAppState(hWnd);
 			if (pState)
 			{
-				TextOutW(hdc, 200, 
+				// Show currently selected DLL
+				TextOut(hdc, 200, 
 					320, 
 					pState->dllDisplayName.c_str(), 
 					(int)pState->dllDisplayName.length()
+				);
+
+				// Show currently selected process
+				std::wstring processDisplayText = pState->selectedProcess.processName +
+					L" (" + std::to_wstring(pState->selectedProcess.processID) + L")";
+
+				TextOut(hdc, 
+					200,
+					360,
+					processDisplayText.c_str(),
+					(int)processDisplayText.length()
 				);
 			}
 
@@ -238,18 +302,19 @@ void UpdateProcessList(HWND hListView)
 	std::vector<ProcessInfo> processes;
 
 	if (GetActiveProcesses(hListView, &processes) == -1)
-	{
+	{	
 		return;
 	}
 
 	LVITEM listViewItem = { 0 };
-	listViewItem.mask = LVIF_TEXT | LVIF_IMAGE;
+	listViewItem.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;
 
 	for (auto p : processes)
 	{
 		listViewItem.pszText = (LPWSTR)p.processName.c_str();
 		listViewItem.iImage = 0;
 		listViewItem.iItem = 0;
+		listViewItem.lParam = p.processID;
 
 		int row = ListView_InsertItem(hListView, &listViewItem);
 
@@ -296,7 +361,6 @@ void OpenFile(HWND hWnd, StateInfo* pAppState)
 
 	if (SUCCEEDED(hr))
 	{
-		//MessageBox(hWnd, pszFilePath, L"Selected File", MB_OK);
 		pAppState->dllPath = pszFilePath;
 
 		CoTaskMemFree(pszFilePath);
@@ -336,6 +400,32 @@ void AddAppControls(HWND hWnd, StateInfo* pAppState)
 		150, 30,	// Size
 		hWnd,
 		(HMENU)OPEN_FILE_BUTTON,
+		(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
+		NULL
+	);
+
+	// Select Process Button
+	CreateWindow(
+		L"BUTTON",
+		L"Select Process",
+		WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+		30, 360,	// Coordinates
+		150, 30,	// Size
+		hWnd,
+		(HMENU)SELECT_PROCESS_BUTTON,
+		(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
+		NULL
+	);
+
+	// Inject Button
+	CreateWindow(
+		L"BUTTON",
+		L"Inject DLL",
+		WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+		30, 400,	// Coordinates
+		150, 30,	// Size
+		hWnd,
+		(HMENU)INJECT_DLL_BUTTON,
 		(HINSTANCE)GetWindowLongPtr(hWnd, GWLP_HINSTANCE),
 		NULL
 	);
