@@ -123,10 +123,22 @@ LRESULT CALLBACK WindowProc(
 	WPARAM wParam, LPARAM lParam)	// additional data that pertains to the message. The exact meaning depends on the message code.
 {
 	StateInfo* pApplicationState = nullptr;
-		
+	HFONT g_hFont = NULL;
 
 	if (uMsg == WM_CREATE)
 	{
+		// Create Segoe UI font for the window
+		HDC hdc = GetDC(hWnd);
+		g_hFont = CreateFontW(
+			-MulDiv(11, GetDeviceCaps(hdc, LOGPIXELSY), 72), 0, 0, 0,
+			FW_NORMAL, FALSE, FALSE, FALSE,
+			DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+			CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+			DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI"
+		);
+		ReleaseDC(hWnd, hdc);
+
+		// Register the application state
 		CREATESTRUCT* pCreate = reinterpret_cast<CREATESTRUCT*>(lParam);
 
 		pApplicationState = reinterpret_cast<StateInfo*>(pCreate->lpCreateParams);
@@ -219,14 +231,15 @@ LRESULT CALLBACK WindowProc(
 		{
 			PAINTSTRUCT paintStruct;
 			HDC hdc = BeginPaint(hWnd, &paintStruct);
-
+			
 			// (All painting begins here, between the call to BeginPaint and EndPaint).
+			
+			HFONT hOldFont = (HFONT)SelectObject(hdc, g_hFont);
 
 			// pass in the entire update region as the 2nd parameter (area to paint)
 			FillRect(hdc, &paintStruct.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
-
+			
 			//TextOutW(hdc, 200, 10, L"Winjector", strlen("Winjector"));
-
 			
 			StateInfo* pState = GetAppState(hWnd);
 			if (pState)
@@ -250,15 +263,8 @@ LRESULT CALLBACK WindowProc(
 				);
 			}
 
+			SelectObject(hdc, hOldFont);
 			EndPaint(hWnd, &paintStruct);
-		}
-		break;
-
-
-	case WM_SIZE:
-		{
-			int width = LOWORD(lParam);
-			int height = HIWORD(lParam);
 		}
 		break;
 
